@@ -45,8 +45,8 @@ def global_fix_math_expr(expr):
     # Fix hanging operators before closing parenthesis (e.g. `55+)` -> `55)`)
     expr = re.sub(r'([+\-*/])\s*\)', ')', expr)
 
-    # Convert Molang conditional statements to Lua if statements (e.g. q.is_gliding ? { q.sound('foo'); })
-    expr = re.sub(r'(.+?)\s*\?\s*{\s*(.+?);\s*}', r'if (\1) then \2 end', expr)
+    # Extract statements from Molang conditionals directly (e.g. q.is_gliding ? { q.sound('wing_flap.medium'); } -> q.sound('wing_flap.medium'))
+    expr = re.sub(r'.+?\s*\?\s*{\s*(.+?);\s*}', r'\1', expr)
 
     # Convert q.sound to the avatar's KeySound function
     expr = expr.replace("q.sound", "KeySound")
