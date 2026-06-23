@@ -45,7 +45,7 @@ def global_fix_math_expr(expr):
     # Fix hanging operators before closing parenthesis (e.g. `55+)` -> `55)`)
     expr = re.sub(r'([+\-*/])\s*\)', ')', expr)
 
-    # Extract statements from Molang conditionals directly (e.g. q.is_gliding ? { q.sound('wing_flap.medium'); } -> q.sound('wing_flap.medium'))
+    # Extract statements from Molang conditionals directly (e.g. q.is_gliding ? { q.sound('foo'); } -> q.sound('foo'))
     expr = re.sub(r'.+?\s*\?\s*{\s*(.+?);\s*}', r'\1', expr)
 
     # Convert q.sound to the avatar's KeySound function
@@ -589,7 +589,7 @@ class AvatarBuilderApp:
             with open(model_path, "r", encoding="utf-8") as model_f:
                 fixedmodel = model_f.read()
 
-            is_non_generic_model = not ('"model_format":"free"' in fixedmodel or '"model_format":"generic"' in fixedmodel)
+            is_non_generic_model = not bool(re.search(r'"model_format"\s*:\s*"(?:free|generic)"', fixedmodel))
 
             fixedmodel = fixedmodel.replace("Math.", "math.")
             fixedmodel = re.sub(r"(?i)math\.sin", "Math.sin", fixedmodel)
