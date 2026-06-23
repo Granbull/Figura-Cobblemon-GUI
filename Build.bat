@@ -1,0 +1,1 @@
+pyinstaller --onefile --noconsole --icon=icon.ico --add-data "icon.ico;." avatar-setup.py
