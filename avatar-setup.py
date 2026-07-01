@@ -177,6 +177,7 @@ class AvatarBuilderApp:
         self.customcry_var = tk.BooleanVar(value=False)
         self.cryfile_var = tk.StringVar(value="")
         self.crosshair_var = tk.BooleanVar(value=True)
+        self.extra_anims_var = tk.BooleanVar(value=False)
         self.status_timer = None
         
         # Checking if there's a valid avatar
@@ -196,8 +197,8 @@ class AvatarBuilderApp:
                 return
             
         self.setup_ui()
-        self.refresh_models()
         self.load_posers()
+        self.refresh_models()
         
     def setup_ui(self):
         main_input_frame = tk.Frame(self.root)
@@ -269,6 +270,7 @@ class AvatarBuilderApp:
                 speed_opt.pack(side=tk.LEFT)
             else:
                 speed_opt.pack_forget()
+        self.toggle_speed_fn = toggle_speed
         toggle_speed()
 
         # Custom Cry
@@ -295,11 +297,17 @@ class AvatarBuilderApp:
                     cry_btn.config(text="Select .ogg")
             else:
                 cry_opt.pack_forget()
+        self.toggle_cry_fn = toggle_cry
+        self.cry_btn = cry_btn
         toggle_cry()
 
         # Crosshair Adjust
         tk.Label(self.adv_frame, text="Crosshair Adjust:").grid(row=6, column=0, sticky="e", pady=2)
         tk.Checkbutton(self.adv_frame, variable=self.crosshair_var).grid(row=6, column=1, sticky="w", padx=5, pady=2)
+
+        # Extra Animations
+        tk.Label(self.adv_frame, text="Extra Animations:").grid(row=7, column=0, sticky="e", pady=2)
+        tk.Checkbutton(self.adv_frame, variable=self.extra_anims_var).grid(row=7, column=1, sticky="w", padx=5, pady=2)
 
         self.adv_frame.grid_columnconfigure(0, minsize=150)
         self.adv_frame.grid_columnconfigure(1, minsize=190)
@@ -361,6 +369,108 @@ class AvatarBuilderApp:
                 self.head_prefix_var.set(f"models['{escaped_modelname}'].")
         else:
             self.head_prefix_var.set("models.")
+        self.load_avatar_config()
+
+    def load_avatar_config(self):
+        avatar_path = os.path.join(self.base_path, "avatar.json")
+        config_path = os.path.join(self.base_path, "config.lua")
+
+        # 1. Read avatar.json for Poser and Extra Animations
+        if os.path.exists(avatar_path):
+            try:
+                with open(avatar_path, "r", encoding="utf-8-sig") as f:
+                    meta = json.load(f)
+                
+                auto_scripts = []
+                for k, v in meta.items():
+                    if k.lower() in ("autoscripts", "auto_scripts") and isinstance(v, list):
+                        auto_scripts = [s.replace("\\", "/").strip() for s in v if isinstance(s, str)]
+                        break
+
+                self.extra_anims_var.set(any(s.lower() in ("poser/extras", "poser/extras.lua") for s in auto_scripts))
+                
+                for script in reversed(auto_scripts):
+                    if not script or "extras" in script.lower() or "priority" in script.lower():
+                        continue
+                    filename = re.split(r'[/\\]', script)[-1]
+                    raw = re.sub(r'[^a-z0-9]', '', re.sub(r'\.lua$', '', filename, flags=re.I).lower())
+                    if not raw:
+                        continue
+                    
+                    matched = False
+                    for idx, val in enumerate(self.poser_cb['values']):
+                        norm_val = re.sub(r'[^a-z0-9]', '', val.lower())
+                        norm_map = re.sub(r'[^a-z0-9]', '', self.poser_mapping.get(val, "").lower())
+                        if raw in (norm_val, norm_map):
+                            self.poser_var.set(val)
+                            self.poser_cb.set(val)
+                            self.poser_cb.current(idx)
+                            matched = True
+                            break
+                    if matched:
+                        break
+            except Exception:
+                pass
+
+        # 2. Read config.lua for Head Path and Advanced Options
+        if not os.path.exists(config_path):
+            return
+
+        try:
+            with open(config_path, "r", encoding="utf-8") as f:
+                config_content = f.read()
+        except Exception:
+            return
+
+        # Check if head path is uninitialized template placeholder
+        head_match = re.search(r'\["head"\]\s*=\s*([^,\n\r]+)', config_content)
+        if head_match:
+            head_val = head_match.group(1).strip()
+            if "NAME_HERE" not in head_val and "PATH.TO.HEAD" not in head_val:
+                # Extract head group suffix
+                prefix = self.head_prefix_var.get()
+                prefix_no_dot = prefix[:-1] if prefix.endswith(".") else prefix
+                if head_val.startswith(prefix):
+                    self.head_var.set(head_val[len(prefix):])
+                elif head_val.startswith(prefix_no_dot):
+                    self.head_var.set(head_val[len(prefix_no_dot):])
+                else:
+                    stripped = re.sub(r'^models(?:\[["\'].*?["\']\]|\.[a-zA-Z0-9_-]+)\.?', '', head_val)
+                    self.head_var.set(stripped)
+
+        # Parse Advanced Options from config.lua
+        def set_str_var(var, pattern):
+            m = re.search(pattern, config_content)
+            if m:
+                var.set(m.group(1).strip())
+
+        def set_bool_var(var, pattern, toggle_fn=None):
+            m = re.search(pattern, config_content)
+            if m:
+                val = m.group(1).strip().lower() == "true"
+                var.set(val)
+                if toggle_fn:
+                    toggle_fn()
+
+        set_str_var(self.scale_var, r'pokescale\s*=\s*([0-9.-]+)')
+        set_str_var(self.camheight_var, r'camheight\s*=\s*([0-9.-]+)')
+        set_str_var(self.nameplatepivot_var, r'nameplatepivot\s*=\s*([0-9.-]+)')
+        set_str_var(self.pdollscale_var, r'pdollscale\s*=\s*([0-9.-]+)')
+        set_str_var(self.movespeed_var, r'movespeed\s*=\s*([0-9.-]+)')
+
+        set_bool_var(self.speedscale_var, r'speedscale\s*=\s*(true|false)', lambda: getattr(self, 'toggle_speed_fn', lambda: None)())
+        set_bool_var(self.customcry_var, r'customcry\s*=\s*(true|false)', lambda: getattr(self, 'toggle_cry_fn', lambda: None)())
+        set_bool_var(self.crosshair_var, r'crosshairAdjust\s*=\s*(true|false)')
+
+        if self.customcry_var.get():
+            model_file = self.model_var.get()
+            if model_file:
+                modelname = model_file.rsplit(".bbmodel", 1)[0]
+                expected_cry = os.path.join(self.base_path, f"{modelname}_cry.ogg")
+                if os.path.exists(expected_cry):
+                    self.cryfile_var.set(expected_cry)
+                    if hasattr(self, 'cry_btn'):
+                        self.cry_btn.config(text="OK!")
 
     def auto_detect_poser(self):
         model_file = self.model_var.get()
@@ -376,7 +486,7 @@ class AvatarBuilderApp:
             self.show_status(f"Error: Failed to read .bbmodel: {str(e)}", "red")
             return
             
-        prefix = r'(?:animations?\.[a-zA-Z0-9_]+\.)?'
+        prefix = r'(?:animations?\.[^.\"]+\.)?'
         has_ground = bool(re.search(rf'"name"\s*:\s*"{prefix}(?:ground_idle|ground_walk|ground_run)"', model_text))
         has_water = bool(re.search(rf'"name"\s*:\s*"{prefix}(?:water_idle|water_swim)"', model_text))
         has_surface = bool(re.search(rf'"name"\s*:\s*"{prefix}(?:surfacewater_idle|surfacewater_swim)"', model_text))
@@ -580,6 +690,11 @@ class AvatarBuilderApp:
             while len(meta["autoScripts"]) < 3:
                 meta["autoScripts"].append("")
             meta["autoScripts"][2] = f"Poser/{poser}"
+            if self.extra_anims_var.get():
+                if "Poser/Extras" not in meta["autoScripts"]:
+                    meta["autoScripts"].append("Poser/Extras")
+            else:
+                meta["autoScripts"] = [s for s in meta["autoScripts"] if s != "Poser/Extras"]
 
             with open(avatar_path, "w", encoding="utf-8") as f:
                 json.dump(meta, f, indent=4)
@@ -595,7 +710,7 @@ class AvatarBuilderApp:
             fixedmodel = re.sub(r"(?i)math\.sin", "Math.sin", fixedmodel)
             fixedmodel = re.sub(r"(?i)math\.cos", "Math.cos", fixedmodel)
             fixedmodel = re.sub(r'"channel":"sound","data_points":\[{"effect":"([a-z\.]+)"', r'"channel":"timeline","data_points":[{"script":"KeySound(\\"\g<1>\\")"', fixedmodel, flags=re.IGNORECASE)
-            fixedmodel = re.sub(r"animations?\.[a-zA-Z0-9_]+\.", "", fixedmodel)
+            fixedmodel = re.sub(r"animations?\.[^.\"]+\.", "", fixedmodel)
             fixedmodel = re.sub(r'-?\bNaN\b', "0", fixedmodel)
             
             # Converting to a Generic model
@@ -779,7 +894,11 @@ class AvatarBuilderApp:
                 cry_src = self.cryfile_var.get()
                 if os.path.exists(cry_src):
                     cry_dst = os.path.join(self.base_path, f"{modelname}_cry.ogg")
-                    shutil.copy2(cry_src, cry_dst)
+                    try:
+                        if os.path.abspath(cry_src) != os.path.abspath(cry_dst):
+                            shutil.copy2(cry_src, cry_dst)
+                    except shutil.SameFileError:
+                        pass
 
             self.show_status("Setup complete!", "green")
             
